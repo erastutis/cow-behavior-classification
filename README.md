@@ -84,4 +84,4 @@ Large files are intentionally excluded from GitHub:
 - trained weights
 - temporary checkpoints
 
-This repository documents the experimental pipeline used in the bachelor thesis. The exact numerical results depend on the dataset files, saved model checkpoints and the same train/validation/test split.
+The repository documents the experimental pipeline and implementation logic. Exact results depend on the original Colab runs, saved checkpoints and validation-based model selection.
