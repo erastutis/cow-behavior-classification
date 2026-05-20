@@ -1,0 +1,28 @@
+seed: 42
+
+data:
+  annotations_path: data/CBVD-5/annotations.csv
+  manifest_path: data/processed/manifest.csv
+
+model:
+  name: r3d18_ultra
+  image_size: 224
+  clip_size: 16
+  clip_stride: 8
+  pretrained: Kinetics-400
+  head: 512_256_5_dropout_0_3
+
+training:
+  epochs: 30
+  early_stopping_patience: 5
+  batch_size: 16
+  backbone_lr: 0.00003
+  head_lr: 0.0003
+  weight_decay: 0.0001
+  loss: CombinedLoss_ASL_WeightedFocal_pos_weight
+  max_pos_weight: 8.0
+  weighted_sampler: true
+  threshold_strategy: per_class_optimized
+  scheduler: CosineAnnealing
+  num_workers: 2
+  output_dir: models/r3d18_ultra

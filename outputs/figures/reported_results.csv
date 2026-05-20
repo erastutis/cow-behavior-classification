@@ -1,0 +1,5 @@
+Model,Macro F1,Micro F1,mAP,Clip length,Parameters
+ResNet-18,0.51,0.594,,1,~11M
+VideoViT,0.643,0.777,,8,~87M
+R3D-18 v1,0.734,0.817,0.757,8,~33M
+R3D-18 ultra,0.773,0.843,0.773,16,~34M

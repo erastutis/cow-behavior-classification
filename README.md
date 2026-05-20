@@ -4,66 +4,30 @@ This repository contains the code structure and reproducibility files for the ba
 
 **Application of Deep Neural Networks for Cattle Behavior Classification from Video Data**  
 Author: **Eimantas Raštutis**  
-Faculty: **Kaunas University of Technology, Faculty of Electrical and Electronics Engineering**
+Institution: **Kaunas University of Technology, Faculty of Electrical and Electronics Engineering**
 
 ## Project description
 
-The project investigates cattle behavior classification from image and video data using deep learning models.  
-The task is formulated as **multi-label classification**, because one frame can contain more than one active behavior label.
+The project investigates **multi-label cattle behavior classification** from image and video data using deep learning models.
 
-The analyzed behavior classes are:
+The task uses five behavior labels:
 
-- standing
-- lying down
-- foraging
-- drinking water
-- rumination
+- `stand`
+- `lying_down`
+- `foraging`
+- `drinking_water`
+- `rumination`
 
-The compared model families are:
+The experiments compare four model configurations:
 
-- ResNet-18
-- R3D-18
-- VideoViT
-
-## Repository structure
-
-```text
-cow-behavior-classification/
-│
-├── README.md
-├── requirements.txt
-├── .gitignore
-├── LICENSE
-│
-├── src/
-│   ├── prepare_dataset.py
-│   ├── train_resnet18.py
-│   ├── train_r3d18.py
-│   ├── train_videovit.py
-│   ├── eval_all_models.py
-│   └── demo_inference.py
-│
-├── configs/
-│   ├── resnet18.yaml
-│   ├── r3d18.yaml
-│   └── videovit.yaml
-│
-├── notebooks/
-│   └── original_colab_experiments.ipynb
-│
-├── outputs/
-│   └── figures/
-│       └── confusion_matrices/
-│
-└── docs/
-    └── thesis_results_summary.md
-```
+- `ResNet-18`
+- `VideoViT`
+- `R3D-18 v1`
+- `R3D-18 ultra`
 
 ## Dataset
 
 The dataset is **not included** in this repository due to size and licensing reasons.
-
-Experiments were performed using the **CBVD-5** cattle behavior dataset.
 
 Expected local structure:
 
@@ -74,74 +38,50 @@ data/
     └── annotations.csv
 ```
 
-## Installation
+The code expects a processed manifest file with the following columns:
 
-```bash
-git clone https://github.com/YOUR_USERNAME/cow-behavior-classification.git
-cd cow-behavior-classification
-
-python -m venv .venv
-.venv\Scripts\activate
-
-pip install -r requirements.txt
-```
-
-On Linux/macOS:
-
-```bash
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
+```text
+frame_path, video_id, y_stand, y_lying_down, y_foraging, y_drinking_water, y_rumination, split
 ```
 
 ## Main workflow
 
-### 1. Prepare dataset
-
 ```bash
 python src/prepare_dataset.py --config configs/resnet18.yaml
-```
-
-### 2. Train frame-based ResNet-18 model
-
-```bash
 python src/train_resnet18.py --config configs/resnet18.yaml
-```
-
-### 3. Train R3D-18 video model
-
-```bash
-python src/train_r3d18.py --config configs/r3d18.yaml
-```
-
-### 4. Train VideoViT model
-
-```bash
 python src/train_videovit.py --config configs/videovit.yaml
-```
-
-### 5. Evaluate all models
-
-```bash
-python src/eval_all_models.py
+python src/train_r3d18.py --config configs/r3d18_v1.yaml
+python src/train_r3d18_ultra.py --config configs/r3d18_ultra.yaml
+python src/eval_all_models.py --config configs/eval.yaml
 ```
 
 ## Main reported results
 
-| Model | Macro F1 | Micro F1 |
-|---|---:|---:|
-| ResNet-18 | 0.510 | - |
-| VideoViT | 0.643 | - |
-| R3D-18 v1 | 0.734 | - |
-| R3D-18 ultra | 0.773 | 0.843 |
+| Model | Macro F1 | Micro F1 | mAP | Clip length | Parameters |
+|---|---:|---:|---:|---:|---:|
+| ResNet-18 | 0.510 | 0.594 | - | 1 | ~11M |
+| VideoViT | 0.643 | 0.777 | - | 8 | ~87M |
+| R3D-18 v1 | 0.734 | 0.817 | 0.757 | 8 | ~33M |
+| R3D-18 ultra | 0.773 | 0.843 | 0.773 | 16 | ~34M |
+
+## Per-class F1 comparison
+
+| Class | ResNet-18 | VideoViT | R3D-18 v1 | R3D-18 ultra |
+|---|---:|---:|---:|---:|
+| stand | 0.800 | 0.889 | 0.918 | 0.925 |
+| lying_down | 0.640 | 0.875 | 0.890 | 0.919 |
+| foraging | 0.500 | 0.616 | 0.814 | 0.836 |
+| rumination | 0.500 | 0.728 | 0.711 | 0.755 |
+| drinking_water | 0.100 | 0.103 | 0.337 | 0.429 |
 
 ## Notes
 
 Large files are intentionally excluded from GitHub:
 
 - dataset files
-- trained model weights
-- raw video/image data
-- temporary training outputs
+- raw frames
+- videos
+- trained weights
+- temporary checkpoints
 
-This repository is intended to document the experimental workflow and make the project easier to reproduce.
+This repository documents the experimental pipeline used in the bachelor thesis. The exact numerical results depend on the dataset files, saved model checkpoints and the same train/validation/test split.

@@ -2,52 +2,48 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
-from sklearn.model_selection import train_test_split
 
-from _utils import LABELS, load_config, parse_config_arg, set_seed
+from _utils import LABEL_COLS, load_config, parse_args, set_seed
 
 
 def main() -> None:
-    args = parse_config_arg()
+    args = parse_args()
     cfg = load_config(args.config)
     set_seed(cfg.get("seed", 42))
 
     annotations_path = Path(cfg["data"]["annotations_path"])
-    output_manifest = Path(cfg["data"]["manifest_path"])
-    output_manifest.parent.mkdir(parents=True, exist_ok=True)
-
-    if not annotations_path.exists():
-        raise FileNotFoundError(f"Annotation file not found: {annotations_path}")
+    manifest_path = Path(cfg["data"]["manifest_path"])
+    manifest_path.parent.mkdir(parents=True, exist_ok=True)
 
     df = pd.read_csv(annotations_path)
 
-    missing = [c for c in LABELS if c not in df.columns]
+    missing = [c for c in ["frame_path", "video_id", *LABEL_COLS] if c not in df.columns]
     if missing:
-        raise ValueError(f"Missing label columns in annotation file: {missing}")
-
-    if "video_id" not in df.columns:
-        raise ValueError("Expected column 'video_id' for video-level train/val/test split.")
+        raise ValueError(f"Missing required columns: {missing}")
 
     videos = df["video_id"].dropna().unique()
-    train_videos, temp_videos = train_test_split(
-        videos,
-        test_size=0.30,
-        random_state=cfg.get("seed", 42),
-    )
-    val_videos, test_videos = train_test_split(
-        temp_videos,
-        test_size=0.50,
-        random_state=cfg.get("seed", 42),
-    )
+    rng = np.random.default_rng(cfg.get("seed", 42))
+    rng.shuffle(videos)
+
+    n = len(videos)
+    n_train = int(0.70 * n)
+    n_val = int(0.15 * n)
+
+    train_videos = videos[:n_train]
+    val_videos = videos[n_train:n_train + n_val]
+    test_videos = videos[n_train + n_val:]
 
     df["split"] = "train"
     df.loc[df["video_id"].isin(val_videos), "split"] = "val"
     df.loc[df["video_id"].isin(test_videos), "split"] = "test"
 
-    df.to_csv(output_manifest, index=False)
-    print(f"Saved manifest: {output_manifest}")
+    df.to_csv(manifest_path, index=False)
+
+    print(f"Saved manifest: {manifest_path}")
     print(df["split"].value_counts())
+    print(df[LABEL_COLS].sum().astype(int))
 
 
 if __name__ == "__main__":

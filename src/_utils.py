@@ -9,15 +9,18 @@ import torch
 import yaml
 
 
-LABELS = ["y_stand", "y_lying_down", "y_foraging", "y_drinking_water", "y_rumination"]
+LABEL_COLS = ["y_stand", "y_lying_down", "y_foraging", "y_drinking_water", "y_rumination"]
 LABEL_NAMES = ["stand", "lying_down", "foraging", "drinking_water", "rumination"]
 
 
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--config", required=True, type=str)
+    return parser.parse_args()
+
+
 def load_config(path: str | Path) -> dict:
-    path = Path(path)
-    if not path.exists():
-        raise FileNotFoundError(f"Config file not found: {path}")
-    with path.open("r", encoding="utf-8") as f:
+    with Path(path).open("r", encoding="utf-8") as f:
         return yaml.safe_load(f)
 
 
@@ -28,11 +31,11 @@ def set_seed(seed: int = 42) -> None:
     torch.cuda.manual_seed_all(seed)
 
 
-def get_device() -> str:
+def device() -> str:
     return "cuda" if torch.cuda.is_available() else "cpu"
 
 
-def parse_config_arg() -> argparse.Namespace:
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--config", type=str, required=True, help="Path to YAML config file.")
-    return parser.parse_args()
+def ensure_dir(path: str | Path) -> Path:
+    path = Path(path)
+    path.mkdir(parents=True, exist_ok=True)
+    return path

@@ -1,16 +1,15 @@
 from __future__ import annotations
 
+import pandas as pd
 import torch
 import torch.nn as nn
-import timm
-
-from train_r3d18 import ClipDataset
-from _utils import LABELS, get_device, load_config, parse_config_arg, set_seed
-
-from pathlib import Path
-import pandas as pd
 from torch.utils.data import DataLoader
+import timm
 from tqdm import tqdm
+
+from _utils import LABEL_COLS, device, ensure_dir, load_config, parse_args, set_seed
+from datasets import ClipDataset
+from losses import compute_pos_weight
 
 
 class VideoViT(nn.Module):
@@ -32,63 +31,58 @@ class VideoViT(nn.Module):
         feats = feats.reshape(b, t, -1)
         attn_out, _ = self.temporal_attn(feats, feats, feats)
         feats = self.norm(feats + attn_out)
-        pooled = feats.mean(dim=1)
-        return self.head(pooled)
+        return self.head(feats.mean(dim=1))
 
 
 def main() -> None:
-    args = parse_config_arg()
+    args = parse_args()
     cfg = load_config(args.config)
     set_seed(cfg.get("seed", 42))
+    dev = device()
 
-    device = get_device()
-    manifest = Path(cfg["data"]["manifest_path"])
-    out_dir = Path(cfg["training"]["output_dir"])
-    out_dir.mkdir(parents=True, exist_ok=True)
-
-    df = pd.read_csv(manifest)
+    df = pd.read_csv(cfg["data"]["manifest_path"])
     train_df = df[df["split"] == "train"].copy()
 
-    dataset = ClipDataset(
+    train_ds = ClipDataset(
         train_df,
         clip_size=cfg["model"]["clip_size"],
+        clip_stride=cfg["model"]["clip_stride"],
         image_size=cfg["model"]["image_size"],
+        train=True,
     )
-    loader = DataLoader(
-        dataset,
+    train_loader = DataLoader(
+        train_ds,
         batch_size=cfg["training"]["batch_size"],
         shuffle=True,
         num_workers=cfg["training"].get("num_workers", 2),
     )
 
-    model = VideoViT(num_classes=len(LABELS)).to(device)
-    criterion = nn.BCEWithLogitsLoss()
-    optimizer = torch.optim.AdamW(
-        model.parameters(),
-        lr=cfg["training"]["learning_rate"],
-        weight_decay=cfg["training"].get("weight_decay", 0.0),
-    )
+    labels = torch.tensor(train_df[LABEL_COLS].values.astype("float32"))
+    pos_weight = compute_pos_weight(labels).to(dev)
+
+    model = VideoViT(num_classes=len(LABEL_COLS)).to(dev)
+    criterion = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
+    optimizer = torch.optim.AdamW(model.parameters(), lr=cfg["training"]["learning_rate"], weight_decay=cfg["training"].get("weight_decay", 0.0001))
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=cfg["training"]["epochs"])
 
     for epoch in range(cfg["training"]["epochs"]):
         model.train()
-        total_loss = 0.0
+        total = 0.0
 
-        for x, y in tqdm(loader, desc=f"epoch {epoch + 1}"):
-            x = x.to(device)
-            y = y.to(device)
-
+        for x, y in tqdm(train_loader, desc=f"epoch {epoch + 1}"):
+            x, y = x.to(dev), y.to(dev)
             optimizer.zero_grad()
-            logits = model(x)
-            loss = criterion(logits, y)
+            loss = criterion(model(x), y)
             loss.backward()
             optimizer.step()
+            total += loss.item() * x.size(0)
 
-            total_loss += loss.item() * x.size(0)
+        scheduler.step()
+        print(f"epoch {epoch + 1}: loss={total / len(train_ds):.4f}")
 
-        print(f"Epoch {epoch + 1}: train_loss={total_loss / len(dataset):.4f}")
-
+    out_dir = ensure_dir(cfg["training"]["output_dir"])
     torch.save(model.state_dict(), out_dir / "videovit_best.pth")
-    print(f"Saved model to {out_dir / 'videovit_best.pth'}")
+    print(f"Saved: {out_dir / 'videovit_best.pth'}")
 
 
 if __name__ == "__main__":

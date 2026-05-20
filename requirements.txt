@@ -8,5 +8,4 @@ Pillow
 tqdm
 opencv-python
 timm
-ultralytics
 pyyaml

@@ -9,7 +9,23 @@ from tqdm import tqdm
 
 from _utils import LABEL_COLS, device, ensure_dir, load_config, parse_args, set_seed
 from datasets import ClipDataset
-from losses import FocalLoss, compute_pos_weight
+from losses import CombinedLoss, compute_pos_weight
+
+
+class R3D18Ultra(nn.Module):
+    def __init__(self, num_classes: int = 5):
+        super().__init__()
+        self.backbone = video_models.r3d_18(weights=video_models.R3D_18_Weights.KINETICS400_V1)
+        self.backbone.fc = nn.Identity()
+        self.fc = nn.Sequential(
+            nn.Linear(512, 256),
+            nn.ReLU(),
+            nn.Dropout(0.3),
+            nn.Linear(256, num_classes),
+        )
+
+    def forward(self, x):
+        return self.fc(self.backbone(x))
 
 
 def make_sampler(dataset: ClipDataset) -> WeightedRandomSampler:
@@ -19,12 +35,6 @@ def make_sampler(dataset: ClipDataset) -> WeightedRandomSampler:
     sample_weight = (labels * class_weight).sum(dim=1)
     sample_weight = torch.where(sample_weight > 0, sample_weight, torch.ones_like(sample_weight) * sample_weight.mean())
     return WeightedRandomSampler(sample_weight.double(), num_samples=len(sample_weight), replacement=True)
-
-
-def build_model(num_classes: int = 5):
-    model = video_models.r3d_18(weights=video_models.R3D_18_Weights.KINETICS400_V1)
-    model.fc = nn.Linear(model.fc.in_features, num_classes)
-    return model
 
 
 def main() -> None:
@@ -43,26 +53,39 @@ def main() -> None:
         image_size=cfg["model"]["image_size"],
         train=True,
     )
-    sampler = make_sampler(train_ds) if cfg["training"].get("weighted_sampler", False) else None
+
+    sampler = make_sampler(train_ds)
     train_loader = DataLoader(
         train_ds,
         batch_size=cfg["training"]["batch_size"],
         sampler=sampler,
-        shuffle=sampler is None,
+        shuffle=False,
         num_workers=cfg["training"].get("num_workers", 2),
     )
 
     labels = torch.tensor(train_df[LABEL_COLS].values.astype("float32"))
-    pos_weight = compute_pos_weight(labels).to(dev)
+    pos_weight = compute_pos_weight(labels, max_weight=cfg["training"].get("max_pos_weight", 8.0)).to(dev)
 
-    model = build_model(num_classes=len(LABEL_COLS)).to(dev)
-    criterion = FocalLoss(gamma=cfg["training"]["focal_gamma"], pos_weight=pos_weight)
-    optimizer = torch.optim.Adam(model.parameters(), lr=cfg["training"]["learning_rate"])
+    model = R3D18Ultra(num_classes=len(LABEL_COLS)).to(dev)
+    criterion = CombinedLoss(pos_weight=pos_weight)
+
+    optimizer = torch.optim.AdamW([
+        {"params": model.backbone.parameters(), "lr": cfg["training"]["backbone_lr"]},
+        {"params": model.fc.parameters(), "lr": cfg["training"]["head_lr"]},
+    ], weight_decay=cfg["training"].get("weight_decay", 0.0001))
+
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=cfg["training"]["epochs"])
+
+    best_loss = float("inf")
+    patience = cfg["training"]["early_stopping_patience"]
+    bad_epochs = 0
+
+    out_dir = ensure_dir(cfg["training"]["output_dir"])
 
     for epoch in range(cfg["training"]["epochs"]):
         model.train()
         total = 0.0
+
         for x, y in tqdm(train_loader, desc=f"epoch {epoch + 1}"):
             x, y = x.to(dev), y.to(dev)
             optimizer.zero_grad()
@@ -72,11 +95,20 @@ def main() -> None:
             total += loss.item() * x.size(0)
 
         scheduler.step()
-        print(f"epoch {epoch + 1}: loss={total / len(train_ds):.4f}")
+        epoch_loss = total / len(train_ds)
+        print(f"epoch {epoch + 1}: loss={epoch_loss:.4f}")
 
-    out_dir = ensure_dir(cfg["training"]["output_dir"])
-    torch.save(model.state_dict(), out_dir / "r3d18_v1_best.pth")
-    print(f"Saved: {out_dir / 'r3d18_v1_best.pth'}")
+        if epoch_loss < best_loss:
+            best_loss = epoch_loss
+            bad_epochs = 0
+            torch.save(model.state_dict(), out_dir / "r3d18_ultra_best.pth")
+        else:
+            bad_epochs += 1
+            if bad_epochs >= patience:
+                print("Early stopping.")
+                break
+
+    print(f"Saved: {out_dir / 'r3d18_ultra_best.pth'}")
 
 
 if __name__ == "__main__":

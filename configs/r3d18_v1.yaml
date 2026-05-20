@@ -5,20 +5,20 @@ data:
   manifest_path: data/processed/manifest.csv
 
 model:
-  name: videovit
+  name: r3d18_v1
   image_size: 224
   clip_size: 8
   clip_stride: 4
-  pretrained: ImageNet
+  pretrained: Kinetics-400
 
 training:
-  epochs: 20
+  epochs: 14
   batch_size: 16
-  learning_rate: 0.00005
-  weight_decay: 0.0001
-  loss: BCEWithLogitsLoss_pos_weight
-  weighted_sampler: false
+  learning_rate: 0.0001
+  focal_gamma: 2.0
+  loss: FocalLoss_pos_weight
+  weighted_sampler: true
   threshold_strategy: fixed_0_5
   scheduler: CosineAnnealing
   num_workers: 2
-  output_dir: models/videovit
+  output_dir: models/r3d18_v1
